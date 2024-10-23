@@ -32,7 +32,8 @@ from legged_gym.envs import AnymalCRoughForceCfg, AnymalCRoughForceCfgPPO
 
 class AnymalCFlatForceCfg( AnymalCRoughForceCfg ):
     class env( AnymalCRoughForceCfg.env ):
-        num_observations = 48
+        num_observations = 51
+        num_envs = 4096
   
     class terrain( AnymalCRoughForceCfg.terrain ):
         mesh_type = 'plane'
@@ -43,17 +44,28 @@ class AnymalCFlatForceCfg( AnymalCRoughForceCfg ):
 
     class rewards( AnymalCRoughForceCfg.rewards ):
         max_contact_force = 350.
+        base_height_target = 0.5
+        only_positive_rewards = True
+        force_sigma = 1/20.
         class scales ( AnymalCRoughForceCfg.rewards.scales ):
             orientation = -5.0
             torques = -0.000025
-            feet_air_time = 2.
-            # feet_contact_forces = -0.01
+            # tracking_lin_vel = 1.0
+            # tracking_ang_vel = 0.5
+            lin_vel_z = -2.0
+            ang_vel_xy = -0.05
+            dof_acc = -2.5e-7
+            base_height = -0. 
+            collision = -1.
+            action_rate = -0.01
+            force_tracking = 0#5.0
     
     class commands( AnymalCRoughForceCfg.commands ):
-        heading_command = False
-        resampling_time = 4.
-        class ranges( AnymalCRoughForceCfg.commands.ranges ):
-            ang_vel_yaw = [-1.5, 1.5]
+        num_commands = 3
+        class ranges:
+            f_x = [-50, 50] # min max [N]
+            f_y = [-50, 50]   # min max [N]
+            f_z = [-1, 1]
 
     class domain_rand( AnymalCRoughForceCfg.domain_rand ):
         friction_range = [0., 1.5] # on ground planes the friction combination mode is averaging, i.e total friction = (foot_friction + 1.)/2.
@@ -68,7 +80,7 @@ class AnymalCFlatForceCfgPPO( AnymalCRoughForceCfgPPO ):
         entropy_coef = 0.01
 
     class runner ( AnymalCRoughForceCfgPPO.runner):
-        run_name = ''
+        run_name = 'remove force tracking reward and increase spring stiffness 7'
         experiment_name = 'flat_anymal_c_force'
         load_run = -1
-        max_iterations = 300
+        max_iterations = 1000 #300
