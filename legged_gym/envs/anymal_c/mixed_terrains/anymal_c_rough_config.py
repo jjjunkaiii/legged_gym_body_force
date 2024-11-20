@@ -87,6 +87,13 @@ class AnymalCRoughCfg( LeggedRobotCfg ):
         class scales( LeggedRobotCfg.rewards.scales ):
             pass
 
+    class commands( LeggedRobotCfg.commands ):
+        class ranges:
+            lin_vel_x = [-0.01, 0.01] # min max [m/s]
+            lin_vel_y = [-0.01, 0.01]   # min max [m/s]
+            ang_vel_yaw = [-0.01, 0.01]    # min max [rad/s]
+            heading = [-0.01, 0.01]
+
 class AnymalCRoughCfgPPO( LeggedRobotCfgPPO ):
     class runner( LeggedRobotCfgPPO.runner ):
         run_name = ''

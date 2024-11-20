@@ -44,20 +44,31 @@ class AnymalCFlatCfg( AnymalCRoughCfg ):
     class rewards( AnymalCRoughCfg.rewards ):
         max_contact_force = 350.
         class scales ( AnymalCRoughCfg.rewards.scales ):
-            orientation = -5.0
-            torques = -0.000025
-            feet_air_time = 2.
+            # orientation = -5.0
+            # torques = -0.000025
             # feet_contact_forces = -0.01
+            tracking_lin_vel = 1.0
+            tracking_ang_vel = 0.5
+            # lin_vel_z = -2.0
+            ang_vel_xy = -0.5
+            # dof_acc = -2.5e-7
+            # collision = -1.
+            # action_rate = -0.01
+            termination = -1.0
+            pass
     
     class commands( AnymalCRoughCfg.commands ):
         heading_command = False
         resampling_time = 4.
-        class ranges( AnymalCRoughCfg.commands.ranges ):
-            ang_vel_yaw = [-1.5, 1.5]
+        # class ranges( AnymalCRoughCfg.commands.ranges ):
+        #     ang_vel_yaw = [-1.5, 1.5]
 
     class domain_rand( AnymalCRoughCfg.domain_rand ):
         friction_range = [0., 1.5] # on ground planes the friction combination mode is averaging, i.e total friction = (foot_friction + 1.)/2.
-
+        push_robots = True
+        push_interval_s = 2#15
+        max_push_vel_xy = 2.#1.
+        
 class AnymalCFlatCfgPPO( AnymalCRoughCfgPPO ):
     class policy( AnymalCRoughCfgPPO.policy ):
         actor_hidden_dims = [128, 64, 32]
@@ -68,7 +79,7 @@ class AnymalCFlatCfgPPO( AnymalCRoughCfgPPO ):
         entropy_coef = 0.01
 
     class runner ( AnymalCRoughCfgPPO.runner):
-        run_name = ''
+        run_name = 'push, add rew: tracking_lin_vel = 0.2, iter=1000'
         experiment_name = 'flat_anymal_c'
         load_run = -1
-        max_iterations = 300
+        max_iterations = 1000

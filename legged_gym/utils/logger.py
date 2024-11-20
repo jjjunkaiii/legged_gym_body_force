@@ -59,7 +59,7 @@ class Logger:
         self.rew_log.clear()
 
     def plot_states(self):
-        self.plot_process = Process(target=self._plot)
+        self.plot_process = Process(target=self._plot_force)
         self.plot_process.start()
 
     def _plot(self):
@@ -123,6 +123,44 @@ class Logger:
         if log["dof_torque"]!=[]: a.plot(time, log["dof_torque"], label='measured')
         a.set(xlabel='time [s]', ylabel='Joint Torque [Nm]', title='Torque')
         a.legend()
+        plt.show()
+
+    def _plot_force(self):
+        nb_rows = 2
+        nb_cols = 2
+        fig, axs = plt.subplots(nb_rows, nb_cols)
+        for key, value in self.state_log.items():
+            time = np.linspace(0, len(value)*self.dt, len(value))
+            break
+        log= self.state_log
+
+        a = axs[0,0]
+        if log["command_x"]: a.plot(time, log["command_x"], label='Command fx')
+        if log["reactional_forces_x"]: a.plot(time, log["reactional_forces_x"], label='Reactional fx')
+        a.set(xlabel='time [s]', ylabel='Force [N]', title='fx')
+        a.legend()
+        
+        a = axs[0,1]
+        if log["command_y"]: a.plot(time, log["command_y"], label='Command fy')
+        if log["reactional_forces_y"]: a.plot(time, log["reactional_forces_y"], label='Reactional fy')
+        a.set(xlabel='time [s]', ylabel='Force [N]', title='fy')
+        a.legend()
+
+        a = axs[1,0]
+        if log["command_z"]: a.plot(time, log["command_z"], label='Command fz')
+        if log["reactional_forces_z"]: a.plot(time, log["reactional_forces_z"], label='Reactional fz')
+        a.set(xlabel='time [s]', ylabel='Force [N]', title='fz')
+        a.legend()
+
+        a = axs[1,1]
+        f_cmd = np.sqrt(np.array(log["command_x"])**2 + np.array(log["command_y"])**2 + np.array(log["command_z"])**2)
+        f_reac = np.sqrt(np.array(log["reactional_forces_x"])**2 + np.array(log["reactional_forces_y"])**2 + np.array(log["reactional_forces_z"])**2)
+
+        a.plot(time, f_cmd, label='Command f')
+        a.plot(time, f_reac, label='Reactional f')
+        a.set(xlabel='time [s]', ylabel='Force [N]', title='f')
+        a.legend()
+
         plt.show()
 
     def print_rewards(self):

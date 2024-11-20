@@ -71,10 +71,14 @@ class Anymalforce(LeggedRobot):
         self.sea_cell_state_per_env = self.sea_cell_state.view(2, self.num_envs, self.num_actions, 8)
 
         self.pos_diff = torch.zeros(self.num_envs, 3, device=self.device, requires_grad=False)
+        self.vel_diff = torch.zeros(self.num_envs, 3, device=self.device, requires_grad=False)
         self.init_base_pos = torch.zeros(self.num_envs, 3, device=self.device, requires_grad=False)
         init_pos = torch.tensor(self.cfg.init_state.pos, dtype=torch.float32, device=self.device)
         for i in range(self.num_envs):
             self.init_base_pos[i] = init_pos + self.env_origins[i]
+
+        self.setpoint_pos = torch.clone(self.init_base_pos)
+        self.setpoint_vel = torch.zeros(self.num_envs, 3, device=self.device, requires_grad=False)
 
         self.reactional_forces = torch.zeros((self.num_envs, self.num_bodies, 3), device=self.device, dtype=torch.float)
         self.reactional_torques = torch.zeros((self.num_envs, self.num_bodies, 3), device=self.device, dtype=torch.float)
@@ -134,7 +138,8 @@ class Anymalforce(LeggedRobot):
         self.base_ang_vel[:] = quat_rotate_inverse(self.base_quat, self.root_states[:, 10:13])
         self.projected_gravity[:] = quat_rotate_inverse(self.base_quat, self.gravity_vec)
         #-------------------
-        self.pos_diff = self.root_states[:, :3] - self.init_base_pos
+        self.pos_diff = self.root_states[:, :3] - self.setpoint_pos
+        self.vel_diff = self.root_states[:, 7:10] - self.setpoint_vel
         #-------------------
 
         self._post_physics_step_callback()
@@ -199,7 +204,7 @@ class Anymalforce(LeggedRobot):
         self.gym.apply_rigid_body_force_tensors(self.sim, gymtorch.unwrap_tensor(self.reactional_forces), gymtorch.unwrap_tensor(self.reactional_torques), gymapi.ENV_SPACE)
 
     def _compute_force(self):
-        self.reactional_forces[:,0,:]=-self.pos_diff[:] * 7
+        self.reactional_forces[:,0,:]=-(self.pos_diff[:] * 700 + self.vel_diff[:] * 6)
 
     def _reset_force(self, env_ids):
         self.reactional_forces[env_ids,0] = torch.zeros(3, device=self.device, dtype=torch.float, requires_grad=False)
@@ -209,7 +214,7 @@ class Anymalforce(LeggedRobot):
         self.gym.clear_lines(self.viewer)
         # draw force vectors, for each environment, draw commanded force vector in yellow and reactional force vector in green, from init_base_pos in each environment
         for i in range(self.num_envs):
-            start = self.init_base_pos[i]
+            start = self.setpoint_pos[i]
             end_cmd = start - self.commands[i] * 0.05
             end_react = start + self.reactional_forces[i,0] * 0.05
             # print(end_react)
@@ -225,11 +230,11 @@ class Anymalforce(LeggedRobot):
         self.obs_buf = torch.cat((  self.base_lin_vel * self.obs_scales.lin_vel,
                                     self.base_ang_vel  * self.obs_scales.ang_vel,
                                     self.projected_gravity,
-                                    self.commands,
                                     (self.dof_pos - self.default_dof_pos) * self.obs_scales.dof_pos,
                                     self.dof_vel * self.obs_scales.dof_vel,
                                     self.actions,
-                                    self.reactional_forces[:,0,:],
+                                    quat_rotate_inverse(self.base_quat, self.commands)*self.obs_scales.commands, 
+                                    quat_rotate_inverse(self.base_quat, self.reactional_forces[:,0,:])*self.obs_scales.reactional_forces,
                                     ),dim=-1)
         # add perceptive inputs if not blind
         if self.cfg.terrain.measure_heights:
@@ -248,10 +253,21 @@ class Anymalforce(LeggedRobot):
         force_error_x = torch.abs(self.commands[:,0] - self.reactional_forces[:,0,0])
         force_error_y = torch.abs(self.commands[:,1] - self.reactional_forces[:,0,1])
         force_error_z = torch.abs(self.commands[:,2] - self.reactional_forces[:,0,2])
-        rew_force_x = torch.exp(-force_error_x / self.cfg.rewards.force_sigma)
-        rew_force_y = torch.exp(-force_error_y / self.cfg.rewards.force_sigma)
-        rew_force_z = torch.exp(-force_error_z / self.cfg.rewards.force_sigma)
-        return rew_force_x + rew_force_y + rew_force_z
+        rew_force = torch.exp(-torch.sqrt(force_error_x**2+force_error_y**2+force_error_z**2)/ self.cfg.rewards.force_sigma)
+
+        return rew_force
+    
+    def _reward_stay_still_lin(self):
+        """ Reward for staying still
+        """
+        lin_vel_error = torch.sum(torch.square(self.base_lin_vel[:, :2]), dim=1)
+        return torch.exp(-lin_vel_error/self.cfg.rewards.tracking_sigma)
+    
+    def _reward_stay_still_ang(self):
+        """ Reward for staying still
+        """
+        ang_vel_error = torch.square(self.base_ang_vel[:, 2])
+        return torch.exp(-ang_vel_error/self.cfg.rewards.tracking_sigma)
         
     # 7. change termination conditions (optional)
 

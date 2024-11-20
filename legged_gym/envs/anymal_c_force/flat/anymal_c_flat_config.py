@@ -46,29 +46,39 @@ class AnymalCFlatForceCfg( AnymalCRoughForceCfg ):
         max_contact_force = 350.
         base_height_target = 0.5
         only_positive_rewards = True
-        force_sigma = 1/20.
-        class scales ( AnymalCRoughForceCfg.rewards.scales ):
-            orientation = -5.0
+        force_sigma = 20.
+        tracking_sigma = 0.25
+        class scales:#( AnymalCRoughForceCfg.rewards.scales )
+            orientation = -10.0
             torques = -0.000025
-            # tracking_lin_vel = 1.0
-            # tracking_ang_vel = 0.5
-            lin_vel_z = -2.0
-            ang_vel_xy = -0.05
+            # lin_vel_z = -2.0
+            ang_vel_xy = -0.1
             dof_acc = -2.5e-7
             base_height = -0. 
             collision = -1.
-            action_rate = -0.01
-            force_tracking = 0#5.0
+            action_rate = -0.1
+            force_tracking = 5.0
+            stay_still_lin = 1.0
+            stay_still_ang = 0.5
     
     class commands( AnymalCRoughForceCfg.commands ):
         num_commands = 3
         class ranges:
-            f_x = [-50, 50] # min max [N]
-            f_y = [-50, 50]   # min max [N]
-            f_z = [-1, 1]
+            # f_x = [-50, 50] # min max [N]
+            # f_y = [-50, 50]   # min max [N]
+            # f_z = [-1, 1]
+            f_x = [-0.01, 0.01]
+            f_y = [-0.01, 0.01]
+            f_z = [-0.01, 0.01]
 
     class domain_rand( AnymalCRoughForceCfg.domain_rand ):
         friction_range = [0., 1.5] # on ground planes the friction combination mode is averaging, i.e total friction = (foot_friction + 1.)/2.
+
+    class normalization( AnymalCRoughForceCfg.normalization):
+        class obs_scales( AnymalCRoughForceCfg.normalization.obs_scales):
+            commands = 0.01
+            reactional_forces = 0.01
+
 
 class AnymalCFlatForceCfgPPO( AnymalCRoughForceCfgPPO ):
     class policy( AnymalCRoughForceCfgPPO.policy ):
@@ -80,7 +90,7 @@ class AnymalCFlatForceCfgPPO( AnymalCRoughForceCfgPPO ):
         entropy_coef = 0.01
 
     class runner ( AnymalCRoughForceCfgPPO.runner):
-        run_name = 'remove force tracking reward and increase spring stiffness 7'
+        run_name = 'track-zero-force-command'
         experiment_name = 'flat_anymal_c_force'
         load_run = -1
-        max_iterations = 1000 #300
+        max_iterations = 1000#300
