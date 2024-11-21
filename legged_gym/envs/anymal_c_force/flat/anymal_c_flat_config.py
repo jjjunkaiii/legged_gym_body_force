@@ -34,6 +34,7 @@ class AnymalCFlatForceCfg( AnymalCRoughForceCfg ):
     class env( AnymalCRoughForceCfg.env ):
         num_observations = 51
         num_envs = 4096
+        episode_length_s = 20.0
   
     class terrain( AnymalCRoughForceCfg.terrain ):
         mesh_type = 'plane'
@@ -63,13 +64,15 @@ class AnymalCFlatForceCfg( AnymalCRoughForceCfg ):
     
     class commands( AnymalCRoughForceCfg.commands ):
         num_commands = 3
+        force_curriculum = True
+        resampling_time = 2.0
         class ranges:
-            # f_x = [-50, 50] # min max [N]
-            # f_y = [-50, 50]   # min max [N]
-            # f_z = [-1, 1]
-            f_x = [-0.01, 0.01]
-            f_y = [-0.01, 0.01]
-            f_z = [-0.01, 0.01]
+            f_x = [-50, 50] # min max [N]
+            f_y = [-50, 50]   # min max [N]
+            f_z = [-1, 1]
+            # f_x = [-0.01, 0.01]
+            # f_y = [-0.01, 0.01]
+            # f_z = [-0.01, 0.01]
 
     class domain_rand( AnymalCRoughForceCfg.domain_rand ):
         friction_range = [0., 1.5] # on ground planes the friction combination mode is averaging, i.e total friction = (foot_friction + 1.)/2.
@@ -90,7 +93,7 @@ class AnymalCFlatForceCfgPPO( AnymalCRoughForceCfgPPO ):
         entropy_coef = 0.01
 
     class runner ( AnymalCRoughForceCfgPPO.runner):
-        run_name = 'track-zero-force-command'
+        run_name = 'body-tracking-cmd-force-with-changing-command'
         experiment_name = 'flat_anymal_c_force'
         load_run = -1
         max_iterations = 1000#300

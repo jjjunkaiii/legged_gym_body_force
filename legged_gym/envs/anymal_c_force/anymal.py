@@ -103,9 +103,31 @@ class Anymalforce(LeggedRobot):
         Args:
             env_ids (List[int]): Environments ids for which new commands are needed
         """
-        self.commands[env_ids, 0] = torch_rand_float(self.command_ranges["f_x"][0], self.command_ranges["f_x"][1], (len(env_ids), 1), device=self.device).squeeze(1)
-        self.commands[env_ids, 1] = torch_rand_float(self.command_ranges["f_y"][0], self.command_ranges["f_y"][1], (len(env_ids), 1), device=self.device).squeeze(1)
-        self.commands[env_ids, 2] = torch_rand_float(self.command_ranges["f_z"][0], self.command_ranges["f_z"][1], (len(env_ids), 1), device=self.device).squeeze(1)
+        command_mode = 'random' # 'random' or 'circular'
+
+        if self.cfg.commands.force_curriculum:
+            coef = self._get_training_progress()
+        else:
+            coef = 1.
+        # self.commands[env_ids, 0] = torch_rand_float(self.command_ranges["f_x"][0], self.command_ranges["f_x"][1], (len(env_ids), 1), device=self.device).squeeze(1)*coef
+        # self.commands[env_ids, 1] = torch_rand_float(self.command_ranges["f_y"][0], self.command_ranges["f_y"][1], (len(env_ids), 1), device=self.device).squeeze(1)*coef
+        # self.commands[env_ids, 2] = torch_rand_float(self.command_ranges["f_z"][0], self.command_ranges["f_z"][1], (len(env_ids), 1), device=self.device).squeeze(1)*coef
+        sampled_command_x = torch_rand_float(self.command_ranges["f_x"][0], self.command_ranges["f_x"][1], (len(env_ids), 1), device=self.device).squeeze(1)
+        sampled_command_y = torch_rand_float(self.command_ranges["f_y"][0], self.command_ranges["f_y"][1], (len(env_ids), 1), device=self.device).squeeze(1)
+        sampled_command_z = torch_rand_float(self.command_ranges["f_z"][0], self.command_ranges["f_z"][1], (len(env_ids), 1), device=self.device).squeeze(1)
+        max_sampled_command_x = self.command_ranges["f_x"][1] * torch.ones(len(env_ids), device=self.device)
+        max_sampled_command_y = self.command_ranges["f_y"][1] * torch.ones(len(env_ids), device=self.device)
+
+        if command_mode == 'random':
+            self.commands[env_ids, 0] = sampled_command_x*coef
+            self.commands[env_ids, 1] = sampled_command_y*coef
+            self.commands[env_ids, 2] = sampled_command_z*coef
+        elif command_mode == 'circular':
+            print("circular")
+            omega = 0.2 * torch.ones(len(env_ids), device=self.device)
+            self.commands[env_ids, 0] = max_sampled_command_x * torch.cos(omega * self.common_step_counter * self.dt)
+            self.commands[env_ids, 1] = max_sampled_command_y * torch.sin(omega * self.common_step_counter * self.dt)
+            self.commands[env_ids, 2] = 0
 
     def _post_physics_step_callback(self):
         """ Callback called before computing terminations, rewards, and observations
@@ -213,14 +235,18 @@ class Anymalforce(LeggedRobot):
     def _draw_debug_vis_force_vector(self):
         self.gym.clear_lines(self.viewer)
         # draw force vectors, for each environment, draw commanded force vector in yellow and reactional force vector in green, from init_base_pos in each environment
+        sphere_geom_cmd = gymutil.WireframeSphereGeometry(0.1, 4, 4, None, color=(1, 1, 0))
+        sphere_geom_react = gymutil.WireframeSphereGeometry(0.1, 4, 4, None, color=(0, 1, 0))
         for i in range(self.num_envs):
             start = self.setpoint_pos[i]
             end_cmd = start - self.commands[i] * 0.05
-            end_react = start + self.reactional_forces[i,0] * 0.05
+            end_react = start - self.reactional_forces[i,0] * 0.05
             # print(end_react)
             gymutil.draw_line(gymapi.Vec3(*start.cpu().numpy()), gymapi.Vec3(*end_cmd.cpu().numpy()), gymapi.Vec3(1, 1, 0), self.gym, self.viewer, self.envs[i])
             gymutil.draw_line(gymapi.Vec3(*start.cpu().numpy()), gymapi.Vec3(*end_react.cpu().numpy()), gymapi.Vec3(0, 1, 0), self.gym, self.viewer, self.envs[i])
-            time.sleep(0.05)
+            gymutil.draw_lines(sphere_geom_cmd, self.gym, self.viewer, self.envs[i], gymapi.Transform(gymapi.Vec3(*end_cmd.cpu().numpy())))
+            gymutil.draw_lines(sphere_geom_react, self.gym, self.viewer, self.envs[i], gymapi.Transform(gymapi.Vec3(*end_react.cpu().numpy())))
+            #time.sleep(0.05)
             gymapi.Vec3(*end_react.cpu().numpy())
      
     # 5. change observation space
@@ -271,3 +297,16 @@ class Anymalforce(LeggedRobot):
         
     # 7. change termination conditions (optional)
 
+    # 8. other functions
+    def _get_training_progress(self):
+        """ Get training progress
+        """
+        # max_iter = self.training_cfg.runner.max_iterations
+        # cur_iter = (self.common_step_counter - 1) // self.training_cfg.runner.num_steps_per_env
+        # print(max_iter)
+        # progress = cur_iter / max_iter
+        # #print(f"Progress: {progress}")
+        # return progress
+        progress = torch.tanh(torch.tensor(self.common_step_counter / (1000 * 24 * 2), device=self.device))
+        progress = progress ** 2
+        return progress
