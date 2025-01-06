@@ -28,28 +28,28 @@
 #
 # Copyright (c) 2021 ETH Zurich, Nikita Rudin
 
-from legged_gym.envs import AnymalCRoughForceCfg, AnymalCRoughForceCfgPPO
+from legged_gym.envs import AnymalCRoughHybridCfg, AnymalCRoughHybridCfgPPO
 
-class AnymalCFlatForceCfg( AnymalCRoughForceCfg ):
-    class env( AnymalCRoughForceCfg.env ):
+class AnymalCFlatHybridCfg( AnymalCRoughHybridCfg ):
+    class env( AnymalCRoughHybridCfg.env ):
         num_observations = 51
         num_envs = 4096
         episode_length_s = 20.0
   
-    class terrain( AnymalCRoughForceCfg.terrain ):
+    class terrain( AnymalCRoughHybridCfg.terrain ):
         mesh_type = 'plane'
         measure_heights = False
   
-    class asset( AnymalCRoughForceCfg.asset ):
+    class asset( AnymalCRoughHybridCfg.asset ):
         self_collisions = 0 # 1 to disable, 0 to enable...bitwise filter
 
-    class rewards( AnymalCRoughForceCfg.rewards ):
+    class rewards( AnymalCRoughHybridCfg.rewards ):
         max_contact_force = 350.
         base_height_target = 0.5
         only_positive_rewards = True
         force_sigma = 20.
         tracking_sigma = 0.25
-        class scales:#( AnymalCRoughForceCfg.rewards.scales )
+        class scales:#( AnymalCRoughHybridCfg.rewards.scales )
             orientation = -10.0
             torques = -0.000025
             # lin_vel_z = -2.0
@@ -62,7 +62,7 @@ class AnymalCFlatForceCfg( AnymalCRoughForceCfg ):
             stay_still_lin = 1.0
             stay_still_ang = 0.5
     
-    class commands( AnymalCRoughForceCfg.commands ):
+    class commands( AnymalCRoughHybridCfg.commands ):
         num_commands = 3
         force_curriculum = True
         resampling_time = 0.05
@@ -74,26 +74,26 @@ class AnymalCFlatForceCfg( AnymalCRoughForceCfg ):
             # f_y = [-0.01, 0.01]
             # f_z = [-0.01, 0.01]
 
-    class domain_rand( AnymalCRoughForceCfg.domain_rand ):
+    class domain_rand( AnymalCRoughHybridCfg.domain_rand ):
         friction_range = [0., 1.5] # on ground planes the friction combination mode is averaging, i.e total friction = (foot_friction + 1.)/2.
 
-    class normalization( AnymalCRoughForceCfg.normalization):
-        class obs_scales( AnymalCRoughForceCfg.normalization.obs_scales):
+    class normalization( AnymalCRoughHybridCfg.normalization):
+        class obs_scales( AnymalCRoughHybridCfg.normalization.obs_scales):
             commands = 0.01
             reactional_forces = 0.01
 
 
-class AnymalCFlatForceCfgPPO( AnymalCRoughForceCfgPPO ):
-    class policy( AnymalCRoughForceCfgPPO.policy ):
+class AnymalCFlatHybridCfgPPO( AnymalCRoughHybridCfgPPO ):
+    class policy( AnymalCRoughHybridCfgPPO.policy ):
         actor_hidden_dims = [128, 64, 32]
         critic_hidden_dims = [128, 64, 32]
         activation = 'elu' # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid
 
-    class algorithm( AnymalCRoughForceCfgPPO.algorithm):
+    class algorithm( AnymalCRoughHybridCfgPPO.algorithm):
         entropy_coef = 0.01
 
-    class runner ( AnymalCRoughForceCfgPPO.runner):
-        run_name = 'body-tracking-cmd-force-with-trigonometric-commands'
-        experiment_name = 'flat_anymal_c_force'
-        load_run = 'Jan06_18-56-43_body-tracking-cmd-force-with-trigonometric-commands' #-1
+    class runner ( AnymalCRoughHybridCfgPPO.runner):
+        run_name = 'test-training'
+        experiment_name = 'flat_anymal_c_hybrid'
+        load_run = -1
         max_iterations = 1000#300
