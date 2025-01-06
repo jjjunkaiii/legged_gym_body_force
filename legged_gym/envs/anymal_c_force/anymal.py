@@ -103,7 +103,7 @@ class Anymalforce(LeggedRobot):
         Args:
             env_ids (List[int]): Environments ids for which new commands are needed
         """
-        command_mode = 'random' # 'random' or 'circular'
+        command_mode = 'circular' # 'random' or 'circular'
 
         if self.cfg.commands.force_curriculum:
             coef = self._get_training_progress()
@@ -123,7 +123,6 @@ class Anymalforce(LeggedRobot):
             self.commands[env_ids, 1] = sampled_command_y*coef
             self.commands[env_ids, 2] = sampled_command_z*coef
         elif command_mode == 'circular':
-            print("circular")
             omega = 0.2 * torch.ones(len(env_ids), device=self.device)
             self.commands[env_ids, 0] = max_sampled_command_x * torch.cos(omega * self.common_step_counter * self.dt)
             self.commands[env_ids, 1] = max_sampled_command_y * torch.sin(omega * self.common_step_counter * self.dt)

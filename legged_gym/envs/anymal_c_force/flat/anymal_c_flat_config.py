@@ -65,7 +65,7 @@ class AnymalCFlatForceCfg( AnymalCRoughForceCfg ):
     class commands( AnymalCRoughForceCfg.commands ):
         num_commands = 3
         force_curriculum = True
-        resampling_time = 2.0
+        resampling_time = 0.05
         class ranges:
             f_x = [-50, 50] # min max [N]
             f_y = [-50, 50]   # min max [N]
@@ -93,7 +93,7 @@ class AnymalCFlatForceCfgPPO( AnymalCRoughForceCfgPPO ):
         entropy_coef = 0.01
 
     class runner ( AnymalCRoughForceCfgPPO.runner):
-        run_name = 'body-tracking-cmd-force-with-changing-command'
+        run_name = 'body-tracking-cmd-force-with-trigonometric-commands'
         experiment_name = 'flat_anymal_c_force'
         load_run = -1
         max_iterations = 1000#300
