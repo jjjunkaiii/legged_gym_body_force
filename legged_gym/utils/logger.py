@@ -59,7 +59,15 @@ class Logger:
         self.rew_log.clear()
 
     def plot_states(self):
+        self.plot_process = Process(target=self._plot)
+        self.plot_process.start()
+
+    def plot_states_force(self):
         self.plot_process = Process(target=self._plot_force)
+        self.plot_process.start()
+
+    def plot_states_hybrid(self):
+        self.plot_process = Process(target=self._plot_hybrid)
         self.plot_process.start()
 
     def _plot(self):
@@ -158,6 +166,35 @@ class Logger:
 
         a.plot(time, f_cmd, label='Command f')
         a.plot(time, f_reac, label='Reactional f')
+        a.set(xlabel='time [s]', ylabel='Force [N]', title='f')
+        a.legend()
+
+        plt.show()
+
+    def _plot_hybrid(self):
+        nb_rows = 1
+        nb_cols = 3
+        fig, axs = plt.subplots(nb_rows, nb_cols)
+        for key, value in self.state_log.items():
+            time = np.linspace(0, len(value)*self.dt, len(value))
+            break
+        log= self.state_log
+
+        a = axs[0]
+        if log["command_x"]: a.plot(time, log["command_x"], label='Command x')
+        if log["robot_x"]: a.plot(time, log["robot_x"], label='Robot x')
+        a.set(xlabel='time [s]', ylabel='Force [N]', title='x')
+        a.legend()
+        
+        a = axs[1]
+        if log["command_y"]: a.plot(time, log["command_y"], label='Command y')
+        if log["robot_y"]: a.plot(time, log["robot_y"], label='Robot y')
+        a.set(xlabel='time [s]', ylabel='Force [N]', title='y')
+        a.legend()
+
+        a = axs[2]
+        if log["command_f"]: a.plot(time, log["command_f"], label='Command f')
+        if log["reactional_force"]: a.plot(time, log["reactional_force"], label='Reactional force')
         a.set(xlabel='time [s]', ylabel='Force [N]', title='f')
         a.legend()
 

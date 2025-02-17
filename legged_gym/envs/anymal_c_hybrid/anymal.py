@@ -72,15 +72,24 @@ class Anymalhybrid(LeggedRobot):
 
         self.pos_diff = torch.zeros(self.num_envs, 3, device=self.device, requires_grad=False)
         self.vel_diff = torch.zeros(self.num_envs, 3, device=self.device, requires_grad=False)
+        self.pos_diff_nor = torch.zeros(self.num_envs, device=self.device, requires_grad=False)
+        self.pos_diff_tan = torch.zeros(self.num_envs, device=self.device, requires_grad=False)
+        self.vel_diff_nor = torch.zeros(self.num_envs, device=self.device, requires_grad=False)
+        self.vel_diff_tan = torch.zeros(self.num_envs, device=self.device, requires_grad=False)
         self.init_base_pos = torch.zeros(self.num_envs, 3, device=self.device, requires_grad=False)
         init_pos = torch.tensor(self.cfg.init_state.pos, dtype=torch.float32, device=self.device)
         for i in range(self.num_envs):
             self.init_base_pos[i] = init_pos + self.env_origins[i]
-
+        # derivitive of the position commands, used to compute the commanded velocity, tangential and normal direction
+        self.commands_dot = torch.zeros(self.num_envs, 3, device=self.device, requires_grad=False)
         self.setpoint_pos = torch.clone(self.init_base_pos)
         self.setpoint_vel = torch.zeros(self.num_envs, 3, device=self.device, requires_grad=False)
+        self.setpoint_vel_magnitude = torch.zeros(self.num_envs, device=self.device, requires_grad=False)
+        self.setpoint_tan = torch.zeros(self.num_envs, 3, device=self.device, requires_grad=False)
+        self.setpoint_nor = torch.zeros(self.num_envs, 3, device=self.device, requires_grad=False)
 
-        self.reactional_forces = torch.zeros((self.num_envs, self.num_bodies, 3), device=self.device, dtype=torch.float)
+        self.reactional_forces = torch.zeros((self.num_envs, self.num_bodies), device=self.device, dtype=torch.float)
+        self.reactional_forces_3d = torch.zeros((self.num_envs, self.num_bodies, 3), device=self.device, dtype=torch.float)
         self.reactional_torques = torch.zeros((self.num_envs, self.num_bodies, 3), device=self.device, dtype=torch.float)
 
     def _compute_torques(self, actions):
@@ -103,30 +112,36 @@ class Anymalhybrid(LeggedRobot):
         Args:
             env_ids (List[int]): Environments ids for which new commands are needed
         """
-        command_mode = 'circular' # 'random' or 'circular'
-
+        # force curriculum learning
         if self.cfg.commands.force_curriculum:
             coef = self._get_training_progress()
         else:
             coef = 1.
-        # self.commands[env_ids, 0] = torch_rand_float(self.command_ranges["f_x"][0], self.command_ranges["f_x"][1], (len(env_ids), 1), device=self.device).squeeze(1)*coef
-        # self.commands[env_ids, 1] = torch_rand_float(self.command_ranges["f_y"][0], self.command_ranges["f_y"][1], (len(env_ids), 1), device=self.device).squeeze(1)*coef
-        # self.commands[env_ids, 2] = torch_rand_float(self.command_ranges["f_z"][0], self.command_ranges["f_z"][1], (len(env_ids), 1), device=self.device).squeeze(1)*coef
-        sampled_command_x = torch_rand_float(self.command_ranges["f_x"][0], self.command_ranges["f_x"][1], (len(env_ids), 1), device=self.device).squeeze(1)
-        sampled_command_y = torch_rand_float(self.command_ranges["f_y"][0], self.command_ranges["f_y"][1], (len(env_ids), 1), device=self.device).squeeze(1)
-        sampled_command_z = torch_rand_float(self.command_ranges["f_z"][0], self.command_ranges["f_z"][1], (len(env_ids), 1), device=self.device).squeeze(1)
-        max_sampled_command_x = self.command_ranges["f_x"][1] * torch.ones(len(env_ids), device=self.device)
-        max_sampled_command_y = self.command_ranges["f_y"][1] * torch.ones(len(env_ids), device=self.device)
+        # in total 4 commands: p_x, p_y, p_z, f 
+        omega = 0.2 * torch.ones(len(env_ids), device=self.device)
+        r = 0.05 * torch.ones(len(env_ids), device=self.device)
+        max_sampled_force = self.command_ranges["f"][1] * torch.ones(len(env_ids), device=self.device)
+        # random commands
+        counter = self.episode_length_buf[env_ids]
+        self.commands[env_ids, 0] = omega * counter * self.dt# r * torch.cos(omega * self.common_step_counter * self.dt) # p_x
+        self.commands[env_ids, 1] = torch.zeros_like(self.commands[env_ids, 1], device=self.device) #r * torch.sin(omega * self.common_step_counter * self.dt) # p_y
+        self.commands[env_ids, 2] = torch.zeros(len(env_ids), device=self.device) # p_z
+        # force f is a scalar, the direction is always along the normal of the curve
+        self.commands[env_ids, 3] = 0 * coef#0 * torch.sin(4 * omega * self.common_step_counter * self.dt) * max_sampled_force * coef
 
-        if command_mode == 'random':
-            self.commands[env_ids, 0] = sampled_command_x*coef
-            self.commands[env_ids, 1] = sampled_command_y*coef
-            self.commands[env_ids, 2] = sampled_command_z*coef
-        elif command_mode == 'circular':
-            omega = 0.2 * torch.ones(len(env_ids), device=self.device)
-            self.commands[env_ids, 0] = max_sampled_command_x * torch.cos(omega * self.common_step_counter * self.dt)
-            self.commands[env_ids, 1] = max_sampled_command_y * torch.sin(omega * self.common_step_counter * self.dt)
-            self.commands[env_ids, 2] = 0
+        # compute the commanded position
+        self.setpoint_pos[env_ids] = self.commands[env_ids, :3] + self.init_base_pos[env_ids]
+        # compute the derivitive of the position commands
+        self.commands_dot[env_ids, 0] = -r * omega * torch.sin(omega * self.common_step_counter * self.dt) # p_x_dot
+        self.commands_dot[env_ids, 1] = r * omega * torch.cos(omega * self.common_step_counter * self.dt) # p_y_dot
+        self.commands_dot[env_ids, 2] = torch.zeros(len(env_ids), device=self.device) # p_z_dot
+        # compute the velocity at commanded poistion
+        self.setpoint_vel[env_ids] = self.commands_dot[env_ids]
+        # compute the magnitude of the commanded velocity
+        self.setpoint_vel_magnitude[env_ids] = torch.norm(self.setpoint_vel[env_ids], dim=-1)
+        # compute the unit tangential and normal direction of the commanded velocity
+        self.setpoint_tan[env_ids] = self.setpoint_vel[env_ids] / self.setpoint_vel_magnitude[env_ids].unsqueeze(1)
+        self.setpoint_nor[env_ids] = torch.stack((-self.setpoint_tan[env_ids][:,1], self.setpoint_tan[env_ids][:,0], torch.zeros(len(env_ids), device=self.device)), dim=-1)
 
     def _post_physics_step_callback(self):
         """ Callback called before computing terminations, rewards, and observations
@@ -158,10 +173,8 @@ class Anymalhybrid(LeggedRobot):
         self.base_lin_vel[:] = quat_rotate_inverse(self.base_quat, self.root_states[:, 7:10])
         self.base_ang_vel[:] = quat_rotate_inverse(self.base_quat, self.root_states[:, 10:13])
         self.projected_gravity[:] = quat_rotate_inverse(self.base_quat, self.gravity_vec)
-        #-------------------
-        self.pos_diff = self.root_states[:, :3] - self.setpoint_pos
-        self.vel_diff = self.root_states[:, 7:10] - self.setpoint_vel
-        #-------------------
+
+        self._compute_diff()
 
         self._post_physics_step_callback()
 
@@ -178,6 +191,15 @@ class Anymalhybrid(LeggedRobot):
 
         if self.viewer and self.enable_viewer_sync and self.debug_viz:
             self._draw_debug_vis_force_vector()
+
+    def _compute_diff(self):
+        self.pos_diff = self.root_states[:, :3] - self.setpoint_pos
+        self.pos_diff_nor = torch.sum(self.pos_diff * self.setpoint_nor, dim=-1)
+        self.pos_diff_tan = torch.sum(self.pos_diff * self.setpoint_tan, dim=-1)
+
+        self.vel_diff = self.root_states[:, 7:10] - self.setpoint_vel
+        self.vel_diff_nor = torch.sum(self.vel_diff * self.setpoint_nor, dim=-1)
+        self.vel_diff_tan = torch.sum(self.vel_diff * self.setpoint_tan, dim=-1)
 
     # 3. add force
     def step(self, actions):
@@ -222,31 +244,28 @@ class Anymalhybrid(LeggedRobot):
 
     def _apply_force(self):
         self._compute_force()
-        self.gym.apply_rigid_body_force_tensors(self.sim, gymtorch.unwrap_tensor(self.reactional_forces), gymtorch.unwrap_tensor(self.reactional_torques), gymapi.ENV_SPACE)
+        self.gym.apply_rigid_body_force_tensors(self.sim, gymtorch.unwrap_tensor(self.reactional_forces_3d), gymtorch.unwrap_tensor(self.reactional_torques), gymapi.ENV_SPACE)
 
     def _compute_force(self):
-        self.reactional_forces[:,0,:]=-(self.pos_diff[:] * 700 + self.vel_diff[:] * 6)
+        self.reactional_forces[:,0]=-(self.pos_diff_nor[:] * 700 + self.vel_diff_nor[:] * 6)
+        self.reactional_forces_3d[:,0,:] = torch.zeros_like(self.reactional_forces_3d[:,0,:])
+        #self.reactional_forces[:,0].unsqueeze(1) * self.setpoint_nor
 
-    def _reset_force(self, env_ids):
-        self.reactional_forces[env_ids,0] = torch.zeros(3, device=self.device, dtype=torch.float, requires_grad=False)
-
-    # 4. visualize force vectors
-    def _draw_debug_vis_force_vector(self):
+    # 4. visualize force vectors 
+    def _draw_debug_vis_force_vector(self): #TODO draw the trajectory
         self.gym.clear_lines(self.viewer)
         # draw force vectors, for each environment, draw commanded force vector in yellow and reactional force vector in green, from init_base_pos in each environment
-        sphere_geom_cmd = gymutil.WireframeSphereGeometry(0.1, 4, 4, None, color=(1, 1, 0))
-        sphere_geom_react = gymutil.WireframeSphereGeometry(0.1, 4, 4, None, color=(0, 1, 0))
+        sphere_geom_cmd = gymutil.WireframeSphereGeometry(0.02, 4, 4, None, color=(1, 1, 0))
+        sphere_geom_react = gymutil.WireframeSphereGeometry(0.02, 4, 4, None, color=(0, 1, 0))
         for i in range(self.num_envs):
-            start = self.setpoint_pos[i]
-            end_cmd = start - self.commands[i] * 0.05
-            end_react = start - self.reactional_forces[i,0] * 0.05
-            # print(end_react)
-            gymutil.draw_line(gymapi.Vec3(*start.cpu().numpy()), gymapi.Vec3(*end_cmd.cpu().numpy()), gymapi.Vec3(1, 1, 0), self.gym, self.viewer, self.envs[i])
-            gymutil.draw_line(gymapi.Vec3(*start.cpu().numpy()), gymapi.Vec3(*end_react.cpu().numpy()), gymapi.Vec3(0, 1, 0), self.gym, self.viewer, self.envs[i])
+            start_setpoint = self.setpoint_pos[i]
+            start_body = self.root_states[i,:3]
+            end_cmd = start_setpoint - self.commands[i, 3] * self.setpoint_nor[i] * 0.2
+            end_react = start_body - self.reactional_forces[i,0] * self.setpoint_nor[i] * 0.2
+            gymutil.draw_line(gymapi.Vec3(*start_setpoint.cpu().numpy()), gymapi.Vec3(*end_cmd.cpu().numpy()), gymapi.Vec3(1, 1, 0), self.gym, self.viewer, self.envs[i])
+            gymutil.draw_line(gymapi.Vec3(*start_body.cpu().numpy()), gymapi.Vec3(*end_react.cpu().numpy()), gymapi.Vec3(0, 1, 0), self.gym, self.viewer, self.envs[i])
             gymutil.draw_lines(sphere_geom_cmd, self.gym, self.viewer, self.envs[i], gymapi.Transform(gymapi.Vec3(*end_cmd.cpu().numpy())))
             gymutil.draw_lines(sphere_geom_react, self.gym, self.viewer, self.envs[i], gymapi.Transform(gymapi.Vec3(*end_react.cpu().numpy())))
-            #time.sleep(0.05)
-            gymapi.Vec3(*end_react.cpu().numpy())
      
     # 5. change observation space
     def compute_observations(self):
@@ -258,8 +277,10 @@ class Anymalhybrid(LeggedRobot):
                                     (self.dof_pos - self.default_dof_pos) * self.obs_scales.dof_pos,
                                     self.dof_vel * self.obs_scales.dof_vel,
                                     self.actions,
-                                    quat_rotate_inverse(self.base_quat, self.commands)*self.obs_scales.commands, 
-                                    quat_rotate_inverse(self.base_quat, self.reactional_forces[:,0,:])*self.obs_scales.reactional_forces,
+                                    quat_rotate_inverse(self.base_quat, self.commands[:,:3])*self.obs_scales.commands_p, 
+                                    quat_rotate_inverse(self.base_quat, self.setpoint_vel)*self.obs_scales.setpoint_vel,
+                                    (self.commands[:,3] * self.obs_scales.force).reshape(-1,1),
+                                    self.reactional_forces * self.obs_scales.force,
                                     ),dim=-1)
         # add perceptive inputs if not blind
         if self.cfg.terrain.measure_heights:
@@ -275,18 +296,24 @@ class Anymalhybrid(LeggedRobot):
         """
         # force_error = torch.norm(self.commands - self.reactional_forces[:,0,:], dim=-1)
         # return torch.exp(-force_error / self.cfg.rewards.scales.force_tracking)
-        force_error_x = torch.abs(self.commands[:,0] - self.reactional_forces[:,0,0])
-        force_error_y = torch.abs(self.commands[:,1] - self.reactional_forces[:,0,1])
-        force_error_z = torch.abs(self.commands[:,2] - self.reactional_forces[:,0,2])
-        rew_force = torch.exp(-torch.sqrt(force_error_x**2+force_error_y**2+force_error_z**2)/ self.cfg.rewards.force_sigma)
+        force_error = torch.abs(self.commands[:,3] - self.reactional_forces[:,0])
+        rew_force = torch.exp(-torch.sqrt(force_error**2)/ self.cfg.rewards.force_sigma)
 
         return rew_force
     
-    def _reward_stay_still_lin(self):
-        """ Reward for staying still
+    def _reward_position_tracking(self):
+        """ Reward for tracking commanded position at tangential direction
         """
-        lin_vel_error = torch.sum(torch.square(self.base_lin_vel[:, :2]), dim=1)
-        return torch.exp(-lin_vel_error/self.cfg.rewards.tracking_sigma)
+        #pos_error = torch.abs(self.pos_diff_tan)
+        pos_error = torch.abs(self.pos_diff).sum(dim=1)
+        return torch.exp(-pos_error / self.cfg.rewards.tracking_sigma)
+    
+    def _reward_stay_still_lin_z(self):
+        """ Reward for staying still in z direction
+        """
+        z_pose_error = torch.abs(self.root_states[:, 2] - self.init_base_pos[:, 2])
+        return torch.exp(-z_pose_error/self.cfg.rewards.tracking_sigma)
+
     
     def _reward_stay_still_ang(self):
         """ Reward for staying still
@@ -306,6 +333,6 @@ class Anymalhybrid(LeggedRobot):
         # progress = cur_iter / max_iter
         # #print(f"Progress: {progress}")
         # return progress
-        progress = torch.tanh(torch.tensor(self.common_step_counter / (1000 * 24 * 2), device=self.device))
+        progress = torch.tanh(torch.tensor(self.common_step_counter / (1000 * 24 * 4), device=self.device))
         progress = progress ** 2
         return progress

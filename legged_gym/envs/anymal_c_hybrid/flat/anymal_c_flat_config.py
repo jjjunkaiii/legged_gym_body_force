@@ -32,9 +32,9 @@ from legged_gym.envs import AnymalCRoughHybridCfg, AnymalCRoughHybridCfgPPO
 
 class AnymalCFlatHybridCfg( AnymalCRoughHybridCfg ):
     class env( AnymalCRoughHybridCfg.env ):
-        num_observations = 51
+        num_observations = 69#TODO
         num_envs = 4096
-        episode_length_s = 20.0
+        episode_length_s = 10.0
   
     class terrain( AnymalCRoughHybridCfg.terrain ):
         mesh_type = 'plane'
@@ -58,29 +58,26 @@ class AnymalCFlatHybridCfg( AnymalCRoughHybridCfg ):
             base_height = -0. 
             collision = -1.
             action_rate = -0.1
-            force_tracking = 5.0
-            stay_still_lin = 1.0
+            # force_tracking = 10.0
+            position_tracking = 5.0
+            stay_still_lin_z = 1.0
             stay_still_ang = 0.5
     
     class commands( AnymalCRoughHybridCfg.commands ):
-        num_commands = 3
+        num_commands = 4
         force_curriculum = True
         resampling_time = 0.05
         class ranges:
-            f_x = [-50, 50] # min max [N]
-            f_y = [-50, 50]   # min max [N]
-            f_z = [-1, 1]
-            # f_x = [-0.01, 0.01]
-            # f_y = [-0.01, 0.01]
-            # f_z = [-0.01, 0.01]
+            f = [-50, 50] # min max [N]
 
     class domain_rand( AnymalCRoughHybridCfg.domain_rand ):
         friction_range = [0., 1.5] # on ground planes the friction combination mode is averaging, i.e total friction = (foot_friction + 1.)/2.
 
     class normalization( AnymalCRoughHybridCfg.normalization):
         class obs_scales( AnymalCRoughHybridCfg.normalization.obs_scales):
-            commands = 0.01
-            reactional_forces = 0.01
+            commands_p = 1.0
+            force = 0.01
+            setpoint_vel = 1.0
 
 
 class AnymalCFlatHybridCfgPPO( AnymalCRoughHybridCfgPPO ):
@@ -93,7 +90,7 @@ class AnymalCFlatHybridCfgPPO( AnymalCRoughHybridCfgPPO ):
         entropy_coef = 0.01
 
     class runner ( AnymalCRoughHybridCfgPPO.runner):
-        run_name = 'test-training'
+        run_name = 'rm-force;follow-straght-line;mod-rew:track-full-pos-diff'
         experiment_name = 'flat_anymal_c_hybrid'
         load_run = -1
-        max_iterations = 1000#300
+        max_iterations = 10000#1000#300

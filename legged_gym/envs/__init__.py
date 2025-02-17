@@ -35,6 +35,7 @@ from .anymal_c.anymal import Anymal
 # import customised environments
 from .anymal_c_force.anymal import Anymalforce
 from .anymal_c_hybrid.anymal import Anymalhybrid
+from .go2_arx.go2_arx_robot import Go2ArxRobot
 #####################
 from .anymal_c.mixed_terrains.anymal_c_rough_config import AnymalCRoughCfg, AnymalCRoughCfgPPO
 from .anymal_c.flat.anymal_c_flat_config import AnymalCFlatCfg, AnymalCFlatCfgPPO
@@ -44,6 +45,9 @@ from .anymal_c_force.flat.anymal_c_flat_config import AnymalCFlatForceCfg, Anyma
 # hybrid commands env
 from .anymal_c_hybrid.mixed_terrains.anymal_c_rough_config import AnymalCRoughHybridCfg, AnymalCRoughHybridCfgPPO
 from .anymal_c_hybrid.flat.anymal_c_flat_config import AnymalCFlatHybridCfg, AnymalCFlatHybridCfgPPO
+# go2_arx env
+from .go2_arx.go2_arx_config import Go2ArxRoughCfg, Go2ArxRoughCfgPPO
+from .go2_arx.go2_arx_robot import Go2ArxRobot
 #####################
 from .anymal_b.anymal_b_config import AnymalBRoughCfg, AnymalBRoughCfgPPO
 from .cassie.cassie import Cassie
@@ -64,3 +68,5 @@ task_registry.register( "anymal_c_flat_hybrid", Anymalhybrid, AnymalCFlatHybridC
 task_registry.register( "anymal_b", Anymal, AnymalBRoughCfg(), AnymalBRoughCfgPPO() )
 task_registry.register( "a1", LeggedRobot, A1RoughCfg(), A1RoughCfgPPO() )
 task_registry.register( "cassie", Cassie, CassieRoughCfg(), CassieRoughCfgPPO() )
+
+task_registry.register( "go2_arx", Go2ArxRobot, Go2ArxRoughCfg(), Go2ArxRoughCfgPPO())
