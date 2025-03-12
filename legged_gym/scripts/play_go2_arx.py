@@ -42,7 +42,7 @@ import torch
 def play(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     # override some parameters for testing
-    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 4)
+    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 9)
     env_cfg.terrain.num_rows = 5
     env_cfg.terrain.num_cols = 5
     env_cfg.terrain.curriculum = True
@@ -50,6 +50,16 @@ def play(args):
     env_cfg.domain_rand.randomize_friction = False
     env_cfg.domain_rand.push_robots = True
     env_cfg.commands.force_curriculum = False
+
+    # change command ranges
+    env_cfg.commands.ranges.lin_vel_x = [-1.0, 1.0] # min max [m/s]
+    env_cfg.commands.ranges.lin_vel_y = [-0., 0.]   # min max [m/s]
+    env_cfg.commands.ranges.ang_vel_yaw = [-0., 0.]    # min max [rad/s]
+    env_cfg.commands.ranges.heading = [-0, 0]
+
+    env_cfg.goal_ee.ranges.init_pos_l = [0.3, 0.5] # min max [m/s]
+    env_cfg.goal_ee.ranges.init_pos_p = [-1 * np.pi / 6, 1 * np.pi / 3]   # min max [m/s]
+    env_cfg.goal_ee.ranges.init_pos_y = [-1 * np.pi / 3, 1 * np.pi / 3]   # min max [m/s]
 
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
@@ -119,4 +129,7 @@ if __name__ == '__main__':
     RECORD_FRAMES = False
     MOVE_CAMERA = False
     args = get_args()
+    args.task = "go2_arx"
+    args.load_run = "Mar06_13-20-30_add_obs:future_goal_ee_sphere;horizon10*0.2;10k_iter"
+    # args.checkpoint = 1200
     play(args)

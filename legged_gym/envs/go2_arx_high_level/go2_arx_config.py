@@ -4,7 +4,7 @@ class Go2ArxRoughCfg( LeggedRobotCfg ):
 
     class env( LeggedRobotCfg.env ):
         num_envs = 4096
-        num_observations = 75
+        num_observations = 87
         symmetric = False  #true :  set num_privileged_obs = None;    false: num_privileged_obs = observations + 187 ,set "terrain.measure_heights" to true
         num_privileged_obs = num_observations + 187 # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise 
         num_actions = 18
@@ -49,7 +49,7 @@ class Go2ArxRoughCfg( LeggedRobotCfg ):
         num_collision_check_samples = 10
         command_mode = 'cart'
         # future goal_ee parameters
-        future_ee_goal_steps = 10
+        future_ee_goal_steps = 5
         future_ee_goal_dt = 0.2
         class ranges:
 
@@ -189,7 +189,7 @@ class Go2ArxRoughCfgPPO( LeggedRobotCfgPPO ):
     class algorithm( LeggedRobotCfgPPO.algorithm ):
         entropy_coef = 0.01
     class runner( LeggedRobotCfgPPO.runner ):
-        run_name = 'baseline;10k_iter'
+        run_name = 'add_obs:future_goal_ee_sphere;horizon5*0.2;10k_iter'
         experiment_name = 'go2_arx'
 
   

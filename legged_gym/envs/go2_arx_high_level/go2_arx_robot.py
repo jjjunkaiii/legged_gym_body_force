@@ -251,8 +251,8 @@ class Go2ArxRobot(LeggedRobot):
                                     self.dof_err * self.obs_scales.dof_pos,
                                     self.dof_vel * self.obs_scales.dof_vel,
                                     self._local_gripper_pos*self.obs_scales.gripper_track,
-                                    self.curr_ee_goal_cart*self.obs_scales.gripper_track,
-                                    # torch.flatten(self.future_ee_goal_sphere, start_dim=1)*self.obs_scales.gripper_track,
+                                    # self.curr_ee_goal_cart*self.obs_scales.gripper_track,
+                                    torch.flatten(self.future_ee_goal_sphere, start_dim=1)*self.obs_scales.gripper_track,
                                     (self._local_gripper_pos-self.curr_ee_goal_cart)*self.obs_scales.gripper_track,
                                     self.actions
                                     ),dim=-1)
