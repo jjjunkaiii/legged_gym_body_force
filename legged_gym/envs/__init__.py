@@ -48,6 +48,9 @@ from .anymal_c_hybrid.flat.anymal_c_flat_config import AnymalCFlatHybridCfg, Any
 # go2_arx env
 from .go2_arx.go2_arx_config import Go2ArxRoughCfg, Go2ArxRoughCfgPPO
 from .go2_arx.go2_arx_robot import Go2ArxRobot
+# go2_arx_high_level
+from .go2_arx.go2_arx_config_high_level import Go2ArxHLRoughCfg, Go2ArxHLRoughCfgPPO
+from .go2_arx.go2_arx_robot_high_level import Go2ArxHLRobot
 #####################
 from .anymal_b.anymal_b_config import AnymalBRoughCfg, AnymalBRoughCfgPPO
 from .cassie.cassie import Cassie
@@ -70,3 +73,4 @@ task_registry.register( "a1", LeggedRobot, A1RoughCfg(), A1RoughCfgPPO() )
 task_registry.register( "cassie", Cassie, CassieRoughCfg(), CassieRoughCfgPPO() )
 
 task_registry.register( "go2_arx", Go2ArxRobot, Go2ArxRoughCfg(), Go2ArxRoughCfgPPO())
+task_registry.register( "go2_arx_HL", Go2ArxHLRobot, Go2ArxHLRoughCfg(), Go2ArxHLRoughCfgPPO())

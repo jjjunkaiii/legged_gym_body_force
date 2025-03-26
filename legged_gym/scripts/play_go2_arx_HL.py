@@ -129,7 +129,5 @@ if __name__ == '__main__':
     RECORD_FRAMES = False
     MOVE_CAMERA = False
     args = get_args()
-    args.task = "go2_arx"
-    args.load_run = "Feb21_16-09-01_First_Run"
-    # args.checkpoint = 1200
+    args.task = "go2_arx_HL"
     play(args)
