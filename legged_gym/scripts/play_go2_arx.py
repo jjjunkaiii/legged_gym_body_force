@@ -52,9 +52,9 @@ def play(args):
     env_cfg.commands.force_curriculum = False
 
     # change command ranges
-    env_cfg.commands.ranges.lin_vel_x = [-1.0, 1.0] # min max [m/s]
-    env_cfg.commands.ranges.lin_vel_y = [-0., 0.]   # min max [m/s]
-    env_cfg.commands.ranges.ang_vel_yaw = [-0., 0.]    # min max [rad/s]
+    env_cfg.commands.ranges.lin_vel_x = [-0., 0.]#[-1.0, 1.0] # min max [m/s]
+    env_cfg.commands.ranges.lin_vel_y = [-0., 0.]#[-0., 0.]   # min max [m/s]
+    env_cfg.commands.ranges.ang_vel_yaw = [-0.5, 0.5]    # min max [rad/s]
     env_cfg.commands.ranges.heading = [-0, 0]
 
     env_cfg.goal_ee.ranges.init_pos_l = [0.3, 0.5] # min max [m/s]

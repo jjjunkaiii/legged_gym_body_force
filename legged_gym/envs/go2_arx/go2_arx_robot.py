@@ -31,12 +31,16 @@ class Go2ArxRobot(LeggedRobot):
         Args:
             actions (torch.Tensor): Tensor of shape (num_envs, num_actions_per_env)
         """
+        # get actuator mode
+        # props = self.gym.get_actor_dof_properties(self.envs[0], self.actor_handles[0],)
+        # print("###props:",props)
         clip_actions = self.cfg.normalization.clip_actions
         self.actions = torch.clip(actions, -clip_actions, clip_actions).to(self.device)
         # step physics and render each frame
         self.render()
         for _ in range(self.cfg.control.decimation):
             self.torques,self.arm_pos = self._compute_torques(self.actions)
+            # self.torques[:,-6:] = 0
             self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(self.torques))
             self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self.arm_pos))
             self.gym.simulate(self.sim)
@@ -242,7 +246,7 @@ class Go2ArxRobot(LeggedRobot):
         q_r = quat_mul(desired, cc)
         return q_r[:, 0:3] * torch.sign(q_r[:, 3]).unsqueeze(-1)
        
-    def control_ik(self,local_ee_pose,local_goal_pose,local_j_eef):
+    def control_ik(self,local_ee_pose,local_goal_pose,local_j_eef): #TODO: task space potential field
         pos_err = local_goal_pose[:,0:3] - local_ee_pose[:,0:3]
         orn = torch.tensor([0,0,0,1], device=self.device).repeat(self.num_envs, 1)
         orn_err = self.orientation_error(orn, orn)
@@ -270,7 +274,8 @@ class Go2ArxRobot(LeggedRobot):
         self.dof_err[:,self.wheel_indices] = 0
         #arm ik 
         ik_u = self.control_ik(self._local_gripper_pos,self.curr_ee_goal,self.j_eef)
-        self.arm_u[:,self.arm_indices] = self.dof_pos[:,self.arm_indices]  + actions[:,self.arm_indices] + ik_u
+        # self.arm_u[:,self.arm_indices] = self.dof_pos[:,self.arm_indices]  + actions[:,self.arm_indices] + ik_u
+        self.arm_u[:,self.arm_indices] = self.dof_pos[:,self.arm_indices]+ actions[:,self.arm_indices] + ik_u
 
         actions_scaled = actions * self.cfg.control.action_scale
         control_type = self.cfg.control.control_type
@@ -487,6 +492,22 @@ class Go2ArxRobot(LeggedRobot):
             body_props = self.gym.get_actor_rigid_body_properties(env_handle, actor_handle)
             body_props = self._process_rigid_body_props(body_props, envs_idx)
             self.gym.set_actor_rigid_body_properties(env_handle, actor_handle, body_props, recomputeInertia=True)
+
+    # def _process_dof_props(self, props, env_id):
+    #     super()._process_dof_props(props, env_id)
+
+    #     for i in range(len(props)):
+    #         if i < 12:
+    #             # Leg joints: torque control
+    #             props["driveMode"][i] = gymapi.DOF_MODE_EFFORT
+    #             props["stiffness"][i] = 0.0
+    #             props["damping"][i] = 0.0
+    #         else:
+    #             # Arm joints: position control
+    #             props["driveMode"][i] = gymapi.DOF_MODE_POS
+    #             props["stiffness"][i] = 0.5# 50.0  # or higher if needed
+    #             props["damping"][i] = 0.01#1.0   
+    #     return props
 
 # ee goal function
     #----------------------------------------

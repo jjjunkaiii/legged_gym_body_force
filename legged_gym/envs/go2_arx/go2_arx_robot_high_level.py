@@ -126,8 +126,8 @@ class Go2ArxHLRobot(Go2ArxRobot):
         """
         # clip_actions = self.cfg.normalization.clip_actions
         # self.actions = torch.clip(actions, -clip_actions, clip_actions).to(self.device)
-        self.clip_actions(actions) #TODO
-        self.compute_observations_LL()
+        self.get_high_level_actions(actions) #TODO
+        self.compute_observations_LL() # input the high level command for the body
         self.actions_LL = self.policy_LL(self.obs_buf_LL.detach()).detach()
         # step physics and render each frame
         self.render()
@@ -147,6 +147,43 @@ class Go2ArxHLRobot(Go2ArxRobot):
         if self.privileged_obs_buf is not None:
             self.privileged_obs_buf = torch.clip(self.privileged_obs_buf, -clip_obs, clip_obs)
         return self.obs_buf, self.privileged_obs_buf, self.rew_buf, self.reset_buf, self.extras
+    
+    def _compute_torques(self, actions):
+        """ Compute torques from actions.
+            Actions can be interpreted as position or velocity targets given to a PD controller, or directly as scaled torques.
+            [NOTE]: torques must have the same dimension as the number of DOFs, even if some DOFs are not actuated.
+
+        Args:
+            actions (torch.Tensor): Actions
+
+        Returns:
+            [torch.Tensor]: Torques sent to the simulation
+        """
+
+        # wheel control 
+        self.dof_err =  self.dof_pos -self.default_dof_pos
+        self.dof_err[:,self.wheel_indices] = 0
+        #arm ik 
+        ik_u = self.control_ik(self._local_gripper_pos,self.curr_ee_goal,self.j_eef)
+        self.arm_u[:,self.arm_indices] = self.dof_pos[:,self.arm_indices] + actions[:,self.arm_indices] + ik_u
+
+        actions_scaled = actions * self.cfg_LL.control.action_scale
+        control_type = self.cfg.control.control_type
+        modify_dof_vel = self.dof_vel.clone().detach()
+        modify_dof_vel[:,self.arm_indices] = 0
+        if control_type=="P":
+            if not self.cfg.domain_rand.randomize_motor:  # TODO add strength to gain directly
+                torques = self.p_gains*(actions_scaled - self.dof_err) - self.d_gains*modify_dof_vel
+            else:
+                torques = self.motor_strength[0] * self.p_gains*(actions_scaled - self.dof_err) - self.motor_strength[1] * self.d_gains*modify_dof_vel
+        elif control_type=="V":
+            torques = self.p_gains*(actions_scaled - modify_dof_vel) - self.d_gains*(modify_dof_vel - self.last_dof_vel)/self.sim_params.dt
+        elif control_type=="T":
+            torques = actions_scaled
+        else:
+            raise NameError(f"Unknown controller type: {control_type}")
+        return torch.clip(torques, -self.torque_limits, self.torque_limits),self.arm_u
+
 
     def compute_observations(self):#TODO
         """ Computes observations
@@ -156,15 +193,15 @@ class Go2ArxHLRobot(Go2ArxRobot):
         self.dof_pos[:,self.wheel_indices] = 0
         self.obs_buf = torch.cat((  self.base_lin_vel * self.obs_scales.lin_vel,
                                     self.base_ang_vel  * self.obs_scales.ang_vel,
-                                    self.projected_gravity,
-                                    self.commands[:, :4] * self.commands_scale,
-                                    self.dof_err * self.obs_scales.dof_pos,
-                                    self.dof_vel * self.obs_scales.dof_vel,
+                                    # self.projected_gravity,
+                                    # self.commands[:, :] * self.commands_scale,
+                                    # self.dof_err * self.obs_scales.dof_pos,
+                                    # self.dof_vel * self.obs_scales.dof_vel,
                                     self._local_gripper_pos*self.obs_scales.gripper_track,
                                     # torch.flatten(self.future_ee_goal_sphere, start_dim=1)*self.obs_scales.gripper_track,
-                                    quat_rotate_inverse(self.base_quat, self.commands[:, -3:])*self.obs_scales.commands*self.obs_scales.gripper_track,
+                                    quat_rotate_inverse(self.base_quat, self.commands[:, :])*self.obs_scales.gripper_track,
                                     self.actions,
-                                    self.actions_LL
+                                    # self.actions_LL
                                     ),dim=-1)
         # self.obs_buf = torch.cat((  self.actions,
         #                             self.commands[:, :4] * self.commands_scale,
@@ -176,8 +213,8 @@ class Go2ArxHLRobot(Go2ArxRobot):
             if not self.cfg.env.symmetric:
                  self.privileged_obs_buf = torch.cat((self.obs_buf, heights), dim=-1)
         # add noise if needed
-        if self.add_noise:
-            self.obs_buf += (2 * torch.rand_like(self.obs_buf) - 1) * self.noise_scale_vec
+        # if self.add_noise:
+        #     self.obs_buf += (2 * torch.rand_like(self.obs_buf) - 1) * self.noise_scale_vec
 
     def compute_observations_LL(self): # compute observations for low level policy
         """ Computes observations
@@ -188,7 +225,7 @@ class Go2ArxHLRobot(Go2ArxRobot):
         self.obs_buf_LL = torch.cat((  self.base_lin_vel * self.obs_scales.lin_vel,
                                     self.base_ang_vel  * self.obs_scales.ang_vel,
                                     self.projected_gravity,
-                                    self.commands[:, :3] * self.commands_scale,
+                                    self.actions[:, :3] * self.commands_scale, # high-level actions as low-level commands
                                     self.dof_err * self.obs_scales.dof_pos,
                                     self.dof_vel * self.obs_scales.dof_vel,
                                     self._local_gripper_pos*self.obs_scales.gripper_track,
@@ -208,11 +245,11 @@ class Go2ArxHLRobot(Go2ArxRobot):
 
     def _resample_commands(self, env_ids):
         omega = 0.2 * torch.ones(len(env_ids), device=self.device)
-        r = 0.05 * torch.ones(len(env_ids), device=self.device)
+        r = 0.3 * torch.ones(len(env_ids), device=self.device)
         counter = self.episode_length_buf[env_ids]
-        self.commands[env_ids, 0] = omega * counter * self.dt# r * torch.cos(omega * self.common_step_counter * self.dt) # p_x
-        self.commands[env_ids, 1] = torch.zeros_like(self.commands[env_ids, 1], device=self.device) #r * torch.sin(omega * self.common_step_counter * self.dt) # p_y
-        self.commands[env_ids, 2] = torch.zeros(len(env_ids), device=self.device) # p_z
+        self.commands[env_ids, 0] = torch.ones(len(env_ids), device=self.device) * omega * counter * self.dt + 0.5# r * torch.cos(omega * self.common_step_counter * self.dt) # p_x
+        self.commands[env_ids, 1] = r * torch.cos(omega * self.common_step_counter * self.dt) # p_y
+        self.commands[env_ids, 2] = torch.zeros(len(env_ids), device=self.device) + 0.5# p_z
         self.commands[env_ids, :] += self.env_origins[env_ids, :]
 
     def _draw_debug_vis(self):
@@ -251,112 +288,137 @@ class Go2ArxHLRobot(Go2ArxRobot):
         super().post_physics_step()
         self.last_actions_LL = self.actions_LL
 
-    def clip_actions(self, actions):
-        self.actions_unclipped = actions.to(self.device)
-        self.actions_unnormalised = torch.clamp(self.actions_unclipped, self.action_lower, self.action_upper)
-        self.actions = self.actions_unnormalised * self.cfg.control.action_scale
+    # def process_actions(self, actions):
+    #     self.actions_unclipped = actions.to(self.device)
+    #     self.actions_unnormalised = torch.clamp(self.actions_unclipped, self.action_lower, self.action_upper)
+    #     self.actions = self.actions_unnormalised * self.cfg.control.action_scale
+
+    #     self.curr_ee_goal = quat_rotate_inverse(self.base_quat, self.actions[:, -3:])
+
+    def get_high_level_actions(self):
+        """
+        Get the high level command for the low level policy, using the model-based controller (PD)
+        """
+        pass
+
+
+    def control_ik(self,local_ee_pose,local_goal_pose,local_j_eef): #TODO: task space potential field
+        pos_err = local_goal_pose[:,0:3] - local_ee_pose[:,0:3]
+        # limit the norm of the position error to 0.2
+        pos_err_max = 0.1
+        pos_err = pos_err * (pos_err_max / pos_err.norm()) if pos_err.norm() > pos_err_max else pos_err
+        pos_err = torch.clamp(pos_err/(torch.norm(pos_err, dim=1).unsqueeze(1)+1e-6), -0.2, 0.2)
+        orn = torch.tensor([0,0,0,1], device=self.device).repeat(self.num_envs, 1)
+        orn_err = self.orientation_error(orn, orn)
+        dpose = torch.cat([pos_err, orn_err], -1).unsqueeze(-1)
+        # solve damped least squares
+        j_eef_T = torch.transpose(local_j_eef, 1, 2)
+        lmbda = torch.eye(6, device=self.device) * (0.05 ** 2)
+        u = (j_eef_T @ torch.inverse(local_j_eef @ j_eef_T + lmbda) @ dpose).view(self.num_envs, 6)
+        return u
+
 
     # #------------ reward functions----------------
-    def _reward_lin_vel_z(self):
-        # Penalize z axis base linear velocity
-        return torch.square(self.base_lin_vel[:, 2])
+    # def _reward_lin_vel_z(self):
+    #     # Penalize z axis base linear velocity
+    #     return torch.square(self.base_lin_vel[:, 2])
     
-    def _reward_ang_vel_xy(self):
-        # Penalize xy axes base angular velocity
-        return torch.sum(torch.square(self.base_ang_vel[:, :2]), dim=1)
+    # def _reward_ang_vel_xy(self):
+    #     # Penalize xy axes base angular velocity
+    #     return torch.sum(torch.square(self.base_ang_vel[:, :2]), dim=1)
     
-    def _reward_orientation(self):
-        # Penalize non flat base orientation
-        return torch.sum(torch.square(self.projected_gravity[:, :2]), dim=1)
+    # def _reward_orientation(self):
+    #     # Penalize non flat base orientation
+    #     return torch.sum(torch.square(self.projected_gravity[:, :2]), dim=1)
 
-    def _reward_base_height(self):
-        # Penalize base height away from target
-        base_height = torch.mean(self.root_states[:, 2].unsqueeze(1) - self.measured_heights, dim=1)
-        return torch.square(base_height - self.cfg.rewards.base_height_target)
+    # def _reward_base_height(self):
+    #     # Penalize base height away from target
+    #     base_height = torch.mean(self.root_states[:, 2].unsqueeze(1) - self.measured_heights, dim=1)
+    #     return torch.square(base_height - self.cfg.rewards.base_height_target)
     
-    def _reward_torques(self):
-        # Penalize torques
-        return torch.sum(torch.square(self.torques), dim=1)
+    # def _reward_torques(self):
+    #     # Penalize torques
+    #     return torch.sum(torch.square(self.torques), dim=1)
 
-    def _reward_dof_vel(self):
-        # Penalize dof velocities
-        return torch.sum(torch.square(self.dof_vel), dim=1)
+    # def _reward_dof_vel(self):
+    #     # Penalize dof velocities
+    #     return torch.sum(torch.square(self.dof_vel), dim=1)
     
-    def _reward_dof_acc(self):
-        # Penalize dof accelerations
-        return torch.sum(torch.square((self.last_dof_vel - self.dof_vel) / self.dt), dim=1)
+    # def _reward_dof_acc(self):
+    #     # Penalize dof accelerations
+    #     return torch.sum(torch.square((self.last_dof_vel - self.dof_vel) / self.dt), dim=1)
     
     def _reward_action_rate(self):
         # Penalize changes in actions
         return torch.sum(torch.square(self.last_actions - self.actions), dim=1)
     
-    def _reward_collision(self):
-        # Penalize collisions on selected bodies
-        return torch.sum(1.*(torch.norm(self.contact_forces[:, self.penalised_contact_indices, :], dim=-1) > 0.1), dim=1)
+    # def _reward_collision(self):
+    #     # Penalize collisions on selected bodies
+    #     return torch.sum(1.*(torch.norm(self.contact_forces[:, self.penalised_contact_indices, :], dim=-1) > 0.1), dim=1)
     
-    def _reward_termination(self):
-        # Terminal reward / penalty
-        return self.reset_buf * ~self.time_out_buf
+    # def _reward_termination(self):
+    #     # Terminal reward / penalty
+    #     return self.reset_buf * ~self.time_out_buf
     
-    def _reward_dof_pos_limits(self):
-        # Penalize dof positions too close to the limit
-        out_of_limits = -(self.dof_pos - self.dof_pos_limits[:, 0]).clip(max=0.) # lower limit
-        out_of_limits += (self.dof_pos - self.dof_pos_limits[:, 1]).clip(min=0.)
-        return torch.sum(out_of_limits, dim=1)
+    # def _reward_dof_pos_limits(self):
+    #     # Penalize dof positions too close to the limit
+    #     out_of_limits = -(self.dof_pos - self.dof_pos_limits[:, 0]).clip(max=0.) # lower limit
+    #     out_of_limits += (self.dof_pos - self.dof_pos_limits[:, 1]).clip(min=0.)
+    #     return torch.sum(out_of_limits, dim=1)
 
-    def _reward_dof_vel_limits(self):
-        # Penalize dof velocities too close to the limit
-        # clip to max error = 1 rad/s per joint to avoid huge penalties
-        return torch.sum((torch.abs(self.dof_vel) - self.dof_vel_limits*self.cfg.rewards.soft_dof_vel_limit).clip(min=0., max=1.), dim=1)
+    # def _reward_dof_vel_limits(self):
+    #     # Penalize dof velocities too close to the limit
+    #     # clip to max error = 1 rad/s per joint to avoid huge penalties
+    #     return torch.sum((torch.abs(self.dof_vel) - self.dof_vel_limits*self.cfg.rewards.soft_dof_vel_limit).clip(min=0., max=1.), dim=1)
 
-    def _reward_torque_limits(self):
-        # penalize torques too close to the limit
-        return torch.sum((torch.abs(self.torques) - self.torque_limits*self.cfg.rewards.soft_torque_limit).clip(min=0.), dim=1)
+    # def _reward_torque_limits(self):
+    #     # penalize torques too close to the limit
+    #     return torch.sum((torch.abs(self.torques) - self.torque_limits*self.cfg.rewards.soft_torque_limit).clip(min=0.), dim=1)
 
-    def _reward_tracking_lin_vel(self):
-        # Tracking of linear velocity commands (xy axes)
-        lin_vel_error = torch.sum(torch.square(self.commands[:, :2] - self.base_lin_vel[:, :2]), dim=1)
-        return torch.exp(-lin_vel_error/self.cfg.rewards.tracking_sigma)
+    # def _reward_tracking_lin_vel(self):
+    #     # Tracking of linear velocity commands (xy axes)
+    #     lin_vel_error = torch.sum(torch.square(self.commands[:, :2] - self.base_lin_vel[:, :2]), dim=1)
+    #     return torch.exp(-lin_vel_error/self.cfg.rewards.tracking_sigma)
     
-    def _reward_tracking_ang_vel(self):
-        # Tracking of angular velocity commands (yaw) 
-        ang_vel_error = torch.square(self.commands[:, 2] - self.base_ang_vel[:, 2])
-        return torch.exp(-ang_vel_error/self.cfg.rewards.tracking_sigma)
+    # def _reward_tracking_ang_vel(self):
+    #     # Tracking of angular velocity commands (yaw) 
+    #     ang_vel_error = torch.square(self.commands[:, 2] - self.base_ang_vel[:, 2])
+    #     return torch.exp(-ang_vel_error/self.cfg.rewards.tracking_sigma)
 
-    def _reward_feet_air_time(self):
-        # Reward long steps
-        # Need to filter the contacts because the contact reporting of PhysX is unreliable on meshes
-        contact = self.contact_forces[:, self.feet_indices, 2] > 1.
-        contact_filt = torch.logical_or(contact, self.last_contacts) 
-        self.last_contacts = contact
-        first_contact = (self.feet_air_time > 0.) * contact_filt
-        self.feet_air_time += self.dt
-        rew_airTime = torch.sum((self.feet_air_time - 0.5) * first_contact, dim=1) # reward only on first contact with the ground
-        rew_airTime *= torch.norm(self.commands[:, :2], dim=1) > 0.1 #no reward for zero command
-        self.feet_air_time *= ~contact_filt
-        return rew_airTime
+    # def _reward_feet_air_time(self):
+    #     # Reward long steps
+    #     # Need to filter the contacts because the contact reporting of PhysX is unreliable on meshes
+    #     contact = self.contact_forces[:, self.feet_indices, 2] > 1.
+    #     contact_filt = torch.logical_or(contact, self.last_contacts) 
+    #     self.last_contacts = contact
+    #     first_contact = (self.feet_air_time > 0.) * contact_filt
+    #     self.feet_air_time += self.dt
+    #     rew_airTime = torch.sum((self.feet_air_time - 0.5) * first_contact, dim=1) # reward only on first contact with the ground
+    #     rew_airTime *= torch.norm(self.commands[:, :2], dim=1) > 0.1 #no reward for zero command
+    #     self.feet_air_time *= ~contact_filt
+    #     return rew_airTime
     
-    def _reward_stumble(self):
-        # Penalize feet hitting vertical surfaces
-        return torch.any(torch.norm(self.contact_forces[:, self.feet_indices, :2], dim=2) >\
-             5 *torch.abs(self.contact_forces[:, self.feet_indices, 2]), dim=1)
+    # def _reward_stumble(self):
+    #     # Penalize feet hitting vertical surfaces
+    #     return torch.any(torch.norm(self.contact_forces[:, self.feet_indices, :2], dim=2) >\
+    #          5 *torch.abs(self.contact_forces[:, self.feet_indices, 2]), dim=1)
         
-    def _reward_stand_still(self):
-        # Penalize motion at zero commands
-        dof_err = self.dof_pos - self.default_dof_pos
-        dof_err[:,self.wheel_indices] = 0
-        dof_err[:,self.arm_indices] = 0
-        return torch.sum(torch.abs(dof_err), dim=1) * (torch.norm(self.commands[:, :2], dim=1) < 0.1)
+    # def _reward_stand_still(self):
+    #     # Penalize motion at zero commands
+    #     dof_err = self.dof_pos - self.default_dof_pos
+    #     dof_err[:,self.wheel_indices] = 0
+    #     dof_err[:,self.arm_indices] = 0
+    #     return torch.sum(torch.abs(dof_err), dim=1) * (torch.norm(self.commands[:, :2], dim=1) < 0.1)
     
-    def _reward_joint_pos_rate(self):
-        # Penalize motion at zero commands
-        dof_err = self.last_dof_pos - self.default_dof_pos
-        dof_err[:,self.wheel_indices] = 0
-        return torch.sum(torch.square(dof_err), dim=1)
+    # def _reward_joint_pos_rate(self):
+    #     # Penalize motion at zero commands
+    #     dof_err = self.last_dof_pos - self.default_dof_pos
+    #     dof_err[:,self.wheel_indices] = 0
+    #     return torch.sum(torch.square(dof_err), dim=1)
     
-    def _reward_feet_contact_forces(self):
-        # penalize high contact forces
-        return torch.sum((torch.norm(self.contact_forces[:, self.feet_indices, :], dim=-1) -  self.cfg.rewards.max_contact_force).clip(min=0.), dim=1)
+    # def _reward_feet_contact_forces(self):
+    #     # penalize high contact forces
+    #     return torch.sum((torch.norm(self.contact_forces[:, self.feet_indices, :], dim=-1) -  self.cfg.rewards.max_contact_force).clip(min=0.), dim=1)
     
     def _reward_object_distance(self) -> Tuple[Tensor, Tensor, Tensor]:
         """Reward for lifting the object off the table."""
